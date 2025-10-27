@@ -1,0 +1,2 @@
+We are looking for a Data Scientist with experience in Python, Machine Learning, and NLP.
+Familiarity with TensorFlow or PyTorch is a plus.

@@ -1,0 +1,9 @@
+dash==3.2.0
+dash-bootstrap-components==1.6.0
+sentence-transformers==3.0.1
+torch
+torchvision
+torchaudio
+pandas==2.2.3
+pdfplumber==0.11.0
+numpy<2
