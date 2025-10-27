@@ -1,31 +1,21 @@
-import os, base64
 import dash
 from dash import dcc, html, Input, Output, State, dash_table
 import dash_bootstrap_components as dbc
-import pandas as pd
+import base64, os
 from sentence_transformers import SentenceTransformer, util
+import pandas as pd
 
 # ------------------------------#
-#   Load Semantic Model (E5)
-#   - If you have a fine-tuned model at ./models/best, it will be used.
-#   - Otherwise, falls back to intfloat/e5-base-v2
+#   Load Semantic Model
 # ------------------------------#
-FINETUNED_DIR = "./models/best"
-MODEL_NAME = FINETUNED_DIR if os.path.isdir(FINETUNED_DIR) else "intfloat/e5-base-v2"
-model = SentenceTransformer(MODEL_NAME)
+model = SentenceTransformer('all-MiniLM-L6-v2')
 
-def compute_similarity(resume_text: str, job_desc: str) -> float:
-    """
-    E5 requires instruction prefixes:
-      - query:   for the search/query text (job description)
-      - passage: for the candidate/document text (resume)
-    """
-    jd = f"query: {job_desc}"
-    rs = f"passage: {resume_text}"
-    emb_jd = model.encode(jd, convert_to_tensor=True, normalize_embeddings=True)
-    emb_rs = model.encode(rs, convert_to_tensor=True, normalize_embeddings=True)
-    score = util.cos_sim(emb_rs, emb_jd).item() * 100.0
+def compute_similarity(resume_text, job_desc):
+    emb1 = model.encode(resume_text, convert_to_tensor=True)
+    emb2 = model.encode(job_desc, convert_to_tensor=True)
+    score = util.cos_sim(emb1, emb2).item() * 100
     return round(score, 2)
+
 
 # ------------------------------#
 #   App & UI Configuration
@@ -47,7 +37,7 @@ CARD_STYLE = {
 
 app.layout = dbc.Container([
     dbc.NavbarSimple(
-        brand=f"AI Resume Screening Suite — {'Fine-Tuned' if MODEL_NAME==FINETUNED_DIR else 'Base'}",
+        brand="AI Resume Screening Suite",
         color="primary",
         dark=True,
         className="mb-4 p-3 shadow-sm"
@@ -116,21 +106,22 @@ app.layout = dbc.Container([
     html.Br()
 ], fluid=True)
 
+
 # ------------------------------#
 #   PDF Text Extraction Helper
 # ------------------------------#
 def extract_text_from_pdf(file_path):
     try:
         import pdfplumber
-    except Exception as e:
-        raise Exception("Install pdfplumber: pip install pdfplumber") from e
+    except:
+        raise Exception("Install pdfplumber: pip install pdfplumber")
 
     text = ""
     with pdfplumber.open(file_path) as pdf:
         for page in pdf.pages:
-            page_text = page.extract_text() or ""
-            text += page_text + " "
+            text += page.extract_text() + " "
     return text.strip()
+
 
 # ------------------------------#
 #   Callback
@@ -169,11 +160,9 @@ def analyze_resumes(n_clicks, contents, filenames, job_desc):
                 "Poor Fit ❌"
             )
 
-            results.append({
-                "Resume": filename,
-                "Match Score (%)": score,
-                "Recommendation": recommendation
-            })
+            results.append({"Resume": filename,
+                            "Match Score (%)": score,
+                            "Recommendation": recommendation})
         except Exception as e:
             results.append({"Resume": filename,
                             "Match Score (%)": 0,
@@ -198,17 +187,31 @@ def analyze_resumes(n_clicks, contents, filenames, job_desc):
             style_header={'backgroundColor': '#f1f3f5', 'fontWeight': 'bold'},
             style_cell={'padding': '12px', 'textAlign': 'center', 'fontSize': '15px'},
             style_data_conditional=[
-                {'if': {'filter_query': '{Match Score (%)} >= 75'}, 'backgroundColor': '#d4edda', 'color': 'black'},
-                {'if': {'filter_query': '{Match Score (%)} >= 50 && {Match Score (%)} < 75'}, 'backgroundColor': '#fff3cd', 'color': 'black'},
-                {'if': {'filter_query': '{Match Score (%)} < 50'}, 'backgroundColor': '#f8d7da', 'color': 'black'}
+                {
+                    'if': {'filter_query': '{Match Score (%)} >= 75'},
+                    'backgroundColor': '#d4edda', 'color': 'black'
+                },
+                {
+                    'if': {'filter_query': '{Match Score (%)} >= 50 && {Match Score (%)} < 75'},
+                    'backgroundColor': '#fff3cd', 'color': 'black'
+                },
+                {
+                    'if': {'filter_query': '{Match Score (%)} < 50'},
+                    'backgroundColor': '#f8d7da', 'color': 'black'
+                }
             ],
             page_size=5,
             sort_action="native"
         )
     ]
 
+
 # ------------------------------#
 # Run App
 # ------------------------------#
-if __name__ == "__main__":
+if __name__ == "__main__": 
     app.run(debug=False, host="0.0.0.0", port=8050)
+
+
+
+fine tune and hyperparameter tune
