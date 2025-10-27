@@ -2,29 +2,15 @@ import dash
 from dash import dcc, html, Input, Output, State, dash_table
 import dash_bootstrap_components as dbc
 import base64, os
-from sentence_transformers import SentenceTransformer, util
-import pandas as pd
+from resume_parser import extract_text_from_pdf
+from nlp_model import compute_similarity
+from utils import ensure_dir
 
-# ------------------------------#
-#   Load Semantic Model
-# ------------------------------#
-model = SentenceTransformer('all-MiniLM-L6-v2')
-
-def compute_similarity(resume_text, job_desc):
-    emb1 = model.encode(resume_text, convert_to_tensor=True)
-    emb2 = model.encode(job_desc, convert_to_tensor=True)
-    score = util.cos_sim(emb1, emb2).item() * 100
-    return round(score, 2)
-
-
-# ------------------------------#
-#   App & UI Configuration
-# ------------------------------#
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.LUX])
 app.title = "AI Resume Screening System"
 
 UPLOAD_DIR = "./data/resumes"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+ensure_dir(UPLOAD_DIR)
 
 CARD_STYLE = {
     "padding": "28px",
@@ -33,6 +19,10 @@ CARD_STYLE = {
     "backgroundColor": "#FFFFFF",
     "marginBottom": "25px",
     "transition": "0.3s"
+}
+
+CARD_HOVER = {
+    "boxShadow": "0px 6px 18px rgba(0,0,0,0.25)"
 }
 
 app.layout = dbc.Container([
@@ -44,7 +34,7 @@ app.layout = dbc.Container([
     ),
 
     dbc.Row([
-        # Left Input Section
+        # Input Section
         dbc.Col([
             dbc.Card([
                 html.H5("Upload Candidate Resumes", className="fw-bold"),
@@ -92,7 +82,7 @@ app.layout = dbc.Container([
             ]),
         ], width=5),
 
-        # Right Output Section
+        # Output Section
         dbc.Col([
             dcc.Loading(
                 id="loading-results",
@@ -107,25 +97,8 @@ app.layout = dbc.Container([
 ], fluid=True)
 
 
-# ------------------------------#
-#   PDF Text Extraction Helper
-# ------------------------------#
-def extract_text_from_pdf(file_path):
-    try:
-        import pdfplumber
-    except:
-        raise Exception("Install pdfplumber: pip install pdfplumber")
+# ---------------- Callback ---------------- #
 
-    text = ""
-    with pdfplumber.open(file_path) as pdf:
-        for page in pdf.pages:
-            text += page.extract_text() + " "
-    return text.strip()
-
-
-# ------------------------------#
-#   Callback
-# ------------------------------#
 @app.callback(
     Output('results', 'children'),
     Input('analyze-btn', 'n_clicks'),
@@ -141,37 +114,37 @@ def analyze_resumes(n_clicks, contents, filenames, job_desc):
         return dbc.Alert("Please upload resumes and provide a job description.",
                          color="danger", className="fw-bold text-center")
 
-    results = []
+    result_data = []
+
     for content, filename in zip(contents, filenames):
         try:
             _, content_string = content.split(',')
             decoded = base64.b64decode(content_string)
             file_path = os.path.join(UPLOAD_DIR, filename)
-
             with open(file_path, "wb") as f:
                 f.write(decoded)
 
             resume_text = extract_text_from_pdf(file_path)
             score = compute_similarity(resume_text, job_desc)
 
-            recommendation = (
-                "Strong Fit ✅" if score >= 75 else
-                "Moderate Fit ⚠️" if score >= 50 else
-                "Poor Fit ❌"
-            )
+            color = "green" if score >= 75 else "orange" if score >= 50 else "red"
 
-            results.append({"Resume": filename,
-                            "Match Score (%)": score,
-                            "Recommendation": recommendation})
+            result_data.append({
+                "Resume": filename,
+                "Match Score (%)": score,
+                "Recommendation": "Strong Fit ✅" if score >= 75 else
+                                  "Moderate Fit ⚠️" if score >= 50 else
+                                  "Poor Fit ❌"
+            })
+
         except Exception as e:
-            results.append({"Resume": filename,
-                            "Match Score (%)": 0,
-                            "Recommendation": f"Error: {e}"})
+            result_data.append({"Resume": filename, "Match Score (%)": 0, "Recommendation": f"Error: {e}"})
 
-    df = pd.DataFrame(results).sort_values("Match Score (%)", ascending=False)
+    result_data = sorted(result_data, key=lambda x: x["Match Score (%)"], reverse=True)
 
-    top_score = df.iloc[0]["Match Score (%)"]
-    count = len(df)
+    # Summary Stats
+    top_score = result_data[0]["Match Score (%)"]
+    count = len(result_data)
 
     return [
         dbc.Card([
@@ -182,22 +155,25 @@ def analyze_resumes(n_clicks, contents, filenames, job_desc):
         ], className="p-3 mb-3 border-0 shadow-sm rounded"),
 
         dash_table.DataTable(
-            df.to_dict("records"),
-            columns=[{"name": c, "id": c} for c in df.columns],
+            result_data,
+            columns=[{"name": c, "id": c} for c in result_data[0].keys()],
             style_header={'backgroundColor': '#f1f3f5', 'fontWeight': 'bold'},
             style_cell={'padding': '12px', 'textAlign': 'center', 'fontSize': '15px'},
             style_data_conditional=[
                 {
                     'if': {'filter_query': '{Match Score (%)} >= 75'},
-                    'backgroundColor': '#d4edda', 'color': 'black'
+                    'backgroundColor': '#d4edda',
+                    'color': 'black'
                 },
                 {
                     'if': {'filter_query': '{Match Score (%)} >= 50 && {Match Score (%)} < 75'},
-                    'backgroundColor': '#fff3cd', 'color': 'black'
+                    'backgroundColor': '#fff3cd',
+                    'color': 'black'
                 },
                 {
                     'if': {'filter_query': '{Match Score (%)} < 50'},
-                    'backgroundColor': '#f8d7da', 'color': 'black'
+                    'backgroundColor': '#f8d7da',
+                    'color': 'black'
                 }
             ],
             page_size=5,
@@ -206,12 +182,9 @@ def analyze_resumes(n_clicks, contents, filenames, job_desc):
     ]
 
 
-# ------------------------------#
-# Run App
-# ------------------------------#
-if __name__ == "__main__": 
+if __name__ == "__main__":
     app.run(debug=False, host="0.0.0.0", port=8050)
 
 
 
-fine tune and hyperparameter tune
+give me alternate models
